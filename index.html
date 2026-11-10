@@ -60,6 +60,7 @@ footer{text-align:center;padding:25px;color:var(--muted);font-size:12px}
     <p>Please let us know if you can join us for our engagement ceremony.</p>
   </div>
   <section class="card" id="rsvp">
+    <div id="rsvpmsg" class="msg" role="status" aria-live="polite" style="margin:0 0 18px;padding:14px 16px;border-radius:12px;background:#e7f4e9;color:#245b37;display:none;text-align:left;font-size:15px"></div>
     <h2>Kindly RSVP</h2>
     <form id="rsvpForm">
       <label for="name">Your full name *</label><input id="name" name="name" maxlength="100" required placeholder="Enter your name">
@@ -72,7 +73,6 @@ footer{text-align:center;padding:25px;color:var(--muted);font-size:12px}
         <label for="companions">Names of accompanying guests (optional)</label><textarea id="companions" name="companions" rows="2" maxlength="500" placeholder="Enter family members' names"></textarea>
       </div>
       <button id="submitBtn" type="submit">Submit RSVP</button>
-      <div id="rsvpmsg" class="msg" role="status"></div>
     </form>
   </section>
   <div class="admin-toggle"><button type="button" id="showAdmin">Private Admin</button></div>
@@ -101,24 +101,63 @@ footer{text-align:center;padding:25px;color:var(--muted);font-size:12px}
 <script>
 const SUPABASE_URL = "https://xgtutuypyjqtyktgpqpy.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_VvyIVewv4_BTaB7OTGmkAA_V4qG_pJP";
-const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let sb = null;
 let engagementRows = [];
+function initialiseSupabase(){
+  if (!window.supabase || typeof window.supabase.createClient !== "function") {
+    showMsg("rsvpmsg","Connection library did not load. Please refresh the page or try again shortly.","error");
+    showMsg("loginmsg","Connection library did not load. Please refresh the page or try again shortly.","error");
+    $("submitBtn").disabled = true;
+    return false;
+  }
+  try {
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    return true;
+  } catch (err) {
+    showMsg("rsvpmsg","Could not initialise the RSVP connection: " + (err.message || String(err)),"error");
+    $("submitBtn").disabled = true;
+    return false;
+  }
+}
 const $ = id => document.getElementById(id);
-function showMsg(id, text, kind=""){const el=$(id);el.textContent=text;el.className="msg "+kind;}
+function showMsg(id, text, kind=""){
+  const el=$(id); el.textContent=text; el.className="msg "+kind;
+  if(id==="rsvpmsg"){
+    el.style.display=text?"block":"none";
+    if(kind==="error"){el.style.background="#fde8e7";el.style.color="#8b2420";}
+    else if(kind==="success"){el.style.background="#e7f4e9";el.style.color="#245b37";}
+    else {el.style.background="#f6f0e5";el.style.color="#513342";}
+    el.scrollIntoView({behavior:"smooth",block:"nearest"});
+  }
+}
 function updateGuestFields(){const declined=$("status").value==="declined";$("guestFields").classList.toggle("hidden",declined);$("party_size").required=!declined;}
 $("status").addEventListener("change",updateGuestFields);updateGuestFields();
+const supabaseReady = initialiseSupabase();
 $("rsvpForm").addEventListener("submit",async e=>{
-  e.preventDefault();const f=new FormData(e.currentTarget);const declined=f.get("status")==="declined";
+  e.preventDefault();
+  if (!sb) {
+    showMsg("rsvpmsg","The RSVP connection is not ready. Please refresh this page and try again.","error");
+    return;
+  }
+  const f=new FormData(e.currentTarget);const declined=f.get("status")==="declined";
   const payload={p_name:String(f.get("name")||"").trim(),p_phone:String(f.get("phone")||"").trim(),p_status:declined?"declined":"confirmed",p_party_size:declined?0:Number(f.get("party_size")),p_companions:String(f.get("companions")||"").trim()};
   $("submitBtn").disabled=true;$("submitBtn").textContent="Submitting...";
-  const {error}=await sb.rpc("submit_engagement_rsvp",payload);
-  $("submitBtn").disabled=false;$("submitBtn").textContent="Submit RSVP";
-  if(error){showMsg("rsvpmsg",`Could not save RSVP: ${error.message}${error.code?` (Code: ${error.code})`:""}`,"error");return;}
-  e.currentTarget.reset();updateGuestFields();showMsg("rsvpmsg","Thank you! Your engagement RSVP has been received. We look forward to celebrating with you!","success");
+  showMsg("rsvpmsg","Submitting your RSVP...");
+  try {
+    const {error}=await sb.rpc("submit_engagement_rsvp",payload);
+    if(error){showMsg("rsvpmsg",`Could not save RSVP: ${error.message}${error.code?` (Code: ${error.code})`:""}`,"error");return;}
+    e.currentTarget.reset();updateGuestFields();showMsg("rsvpmsg","Thank you! Your response has been received.","success");
+  } catch(err) {
+    showMsg("rsvpmsg","RSVP connection error: "+(err.message||String(err)),"error");
+  } finally {
+    $("submitBtn").disabled=false;$("submitBtn").textContent="Submit RSVP";
+  }
 });
 $("showAdmin").addEventListener("click",()=>$("adminCard").classList.toggle("hidden"));
 $("loginForm").addEventListener("submit",async e=>{
-  e.preventDefault();showMsg("loginmsg","Signing in...");
+  e.preventDefault();
+  if (!sb) { showMsg("loginmsg","The connection is not ready. Refresh the page and try again.","error"); return; }
+  showMsg("loginmsg","Signing in...");
   const {data,error}=await sb.auth.signInWithPassword({email:$("adminEmail").value.trim(),password:$("adminPassword").value});
   if(error){showMsg("loginmsg",error.message,"error");return;}
   const {data:allowed,error:checkError}=await sb.rpc("is_wedding_admin");
@@ -126,6 +165,7 @@ $("loginForm").addEventListener("submit",async e=>{
   $("loginForm").classList.add("hidden");$("dashboard").classList.remove("hidden");await loadResponses();
 });
 async function loadResponses(){
+  if (!sb) { showMsg("dashmsg","The connection is not ready. Refresh the page and sign in again.","error"); return; }
   showMsg("dashmsg","Loading responses...");
   const {data,error}=await sb.from("engagement_guests").select("*").order("created_at",{ascending:false});
   if(error){showMsg("dashmsg",error.message,"error");return;}
