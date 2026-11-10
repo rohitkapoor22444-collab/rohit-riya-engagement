@@ -135,6 +135,7 @@ $("status").addEventListener("change",updateGuestFields);updateGuestFields();
 const supabaseReady = initialiseSupabase();
 $("rsvpForm").addEventListener("submit",async e=>{
   e.preventDefault();
+  const form = e.currentTarget;
   if (!sb) {
     showMsg("rsvpmsg","The RSVP connection is not ready. Please refresh this page and try again.","error");
     return;
@@ -146,7 +147,9 @@ $("rsvpForm").addEventListener("submit",async e=>{
   try {
     const {error}=await sb.rpc("submit_engagement_rsvp",payload);
     if(error){showMsg("rsvpmsg",`Could not save RSVP: ${error.message}${error.code?` (Code: ${error.code})`:""}`,"error");return;}
-    e.currentTarget.reset();updateGuestFields();showMsg("rsvpmsg","Thank you! Your response has been received.","success");
+    form.reset();
+    updateGuestFields();
+    showMsg("rsvpmsg","Thank you! Your response has been received.\nधन्यवाद!","success");
   } catch(err) {
     showMsg("rsvpmsg","RSVP connection error: "+(err.message||String(err)),"error");
   } finally {
